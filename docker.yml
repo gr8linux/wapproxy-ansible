@@ -1,0 +1,101 @@
+---
+- hosts: all
+  become: true
+  vars:
+    container_count: 4
+    docker_compose_url: https://github.com/docker/compose/releases/download/v2.14.2/docker-compose-linux-x86_64
+    whatsapp_proxy_container_name: whatsapp_proxy
+    whatsapp_proxy_container_image: whatsapp_proxy:1.0
+    whatsapp_repository: https://www.github.com/gr8linux/proxy.git
+    whatsapp_project_src: /tmp/proxy/proxy/ops
+    whatsapp_proxy_ports:
+      - "80:80"     # HTTP
+      - "443:443"   # HTTPS
+      - "5222:5222" # JABBER
+      - "8199:8199" # HAPROXY statistics page
+      - "8080:8080" # HTTP with accept-proxy processing
+      - "8443:8443" # HTTPS with accept-proxy processing
+      - "8222:8222" # JABBER with accept-proxy processing
+
+  tasks:
+    - name: Install aptitude
+      apt:
+        name: aptitude
+        state: latest
+        update_cache: true
+
+    - name: Install required system packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+        state: latest
+        update_cache: true
+
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Update apt and install docker-ce
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: true
+    - name: Install docker-compose
+      get_url:
+        url : "{{ docker_compose_url }}"
+        dest: /usr/local/bin/docker-compose
+        mode: 'u+x,g+x'
+    - name: Install Docker Module for Python
+      pip:
+        name:
+        - docker
+        - docker-compose
+    - name: Clean up repo dir 
+      file:
+        path: /tmp/proxy
+        state: absent
+    - name: Clone git repository
+      git:
+        repo: "{{ whatsapp_repository }}"
+        dest: /tmp/proxy
+    # - name: Build docker image
+    #   docker_image:
+    #     path: /tmp/proxy/proxy/
+    #     name: "{{ whatsapp_proxy_container_image }}"
+    - name: Get primary IP address
+      set_fact:
+        primary_ip: "{{ ansible_default_ipv4.address }}"
+    - name: The primary IP
+      debug:
+        var: ansible_default_ipv4
+    - name: Add IP to docker-compose file
+      lineinfile:
+        path: /tmp/proxy/proxy/ops/docker-compose.yml
+        regexp: 'PUBLIC_IP='
+        line: '      - PUBLIC_IP={{ primary_ip }}'
+    - name: Tear down existing services
+      community.docker.docker_compose:
+        project_src: "{{ whatsapp_project_src }}"
+        state: absent
+    - name: Start docker-compose project
+      docker_compose:
+        project_src: "{{ whatsapp_project_src }}"
+        state: present
+    - name: Read Server Status
+      ansible.builtin.shell: "docker logs {{ whatsapp_proxy_container_name }}"
+      register: docker_status_log_output
+    - name: Server Status
+      debug:
+        var: docker_status_log_output.stdout
