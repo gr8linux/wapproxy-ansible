@@ -79,7 +79,7 @@
         primary_ip: "{{ ansible_default_ipv4.address }}"
     - name: The primary IP
       debug:
-        var: ansible_default_ipv4
+        var: ansible_default_ipv4.address
     - name: Add IP to docker-compose file
       lineinfile:
         path: /tmp/proxy/proxy/ops/docker-compose.yml
